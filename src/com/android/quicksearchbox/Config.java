@@ -99,12 +99,53 @@ public class Config {
     }
 
     private HashSet<String> loadResourceStringSet(int res) {
-        HashSet<String> set = new HashSet<String>();
-        String[] items = mContext.getResources().getStringArray(res);
-        for (String item : items) {
-            set.add(item);
+        HashSet<String> defaultCorpora = new HashSet<String>();
+        String[] corpora = mContext.getResources().getStringArray(res);
+        for (String corpus : corpora) {
+            if (DBG) Log.d(TAG, "Default corpus: " + corpus);
+            defaultCorpora.add(corpus);
         }
-        return set;
+        return defaultCorpora;
+    }
+
+    /**
+     * Checks if we trust the given source not to be spammy.
+     */
+    public synchronized boolean isCorpusEnabledByDefault(Corpus corpus) {
+        if (DBG) Log.d(TAG, "isCorpusEnabledByDefault(" + corpus.getName() + ")");
+        if (mDefaultCorpora == null) {
+            mDefaultCorpora = loadResourceStringSet(R.array.default_corpora);
+        }
+        if (mDefaultCorpora.contains(corpus.getName())) {
+            if (DBG) Log.d(TAG, "Corpus " + corpus.getName() + " IS default");
+            return true;
+        }
+
+        if (mDefaultCorporaSuggestUris == null) {
+            mDefaultCorporaSuggestUris = loadResourceStringSet(
+                    R.array.default_corpora_suggest_uris);
+        }
+
+        for (Source s : corpus.getSources()) {
+            String uri = s.getSuggestUri();
+            if (DBG) Log.d(TAG, "Suggest URI for " + corpus.getName() + ": " + uri);
+            if (mDefaultCorporaSuggestUris.contains(uri)) {
+                if (DBG) Log.d(TAG, "Corpus " + corpus.getName() + " IS default");
+                return true;
+            }
+        }
+        if (DBG) Log.d(TAG, "Corpus " + corpus.getName() + " is NOT default");
+        return false;
+    }
+
+    /**
+     * Checks if the given corpus should be hidden from the corpus selection dialog.
+     */
+    public synchronized boolean isCorpusHidden(String corpusName) {
+        if (mHiddenCorpora == null) {
+            mHiddenCorpora = loadResourceStringSet(R.array.hidden_corpora);
+        }
+        return mHiddenCorpora.contains(corpusName);
     }
 
     /**
@@ -211,6 +252,14 @@ public class Config {
      */
     public long getTypingUpdateSuggestionsDelayMillis() {
         return TYPING_SUGGESTIONS_UPDATE_DELAY_MILLIS;
+    }
+
+    /**
+     * The delay in milliseconds before corpus results are published.
+     * If a new result arrives before this timeout expires, the timeout is reset.
+     */
+    public long getPublishResultDelayMillis() {
+        return PUBLISH_RESULT_DELAY_MILLIS;
     }
 
     public boolean allowVoiceSearchHints() {

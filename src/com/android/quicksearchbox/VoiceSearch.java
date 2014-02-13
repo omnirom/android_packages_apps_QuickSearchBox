@@ -44,8 +44,12 @@ public class VoiceSearch {
         return mContext;
     }
 
-    public boolean shouldShowVoiceSearch() {
-        return isVoiceSearchAvailable();
+    public boolean shouldShowVoiceSearch(Corpus corpus) {
+        return corpusSupportsVoiceSearch(corpus) && isVoiceSearchAvailable();
+    }
+
+    protected boolean corpusSupportsVoiceSearch(Corpus corpus) {
+        return (corpus == null || corpus.voiceSearchEnabled());
     }
 
     protected Intent createVoiceSearchIntent() {

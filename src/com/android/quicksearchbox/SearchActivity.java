@@ -16,9 +16,21 @@
 
 package com.android.quicksearchbox;
 
+import com.android.common.Search;
+import com.android.quicksearchbox.ui.SearchActivityView;
+import com.android.quicksearchbox.ui.SuggestionClickListener;
+import com.android.quicksearchbox.ui.SuggestionsAdapter;
+import com.android.quicksearchbox.util.Consumer;
+import com.android.quicksearchbox.util.Consumers;
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.CharMatcher;
+
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.app.SearchManager;
+import android.content.DialogInterface;
 import android.content.Intent;
+import android.database.DataSetObserver;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Debug;
@@ -27,15 +39,13 @@ import android.text.TextUtils;
 import android.util.Log;
 import android.view.Menu;
 import android.view.View;
-
-import com.android.common.Search;
-import com.android.quicksearchbox.ui.SearchActivityView;
-import com.android.quicksearchbox.ui.SuggestionClickListener;
-import com.android.quicksearchbox.ui.SuggestionsAdapter;
-import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.CharMatcher;
+import android.widget.Toast;
 
 import java.io.File;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
+import java.util.Set;
 
 /**
  * The main activity for Quick Search Box. Shows the search UI.
@@ -48,9 +58,13 @@ public class SearchActivity extends Activity {
 
     private static final String SCHEME_CORPUS = "qsb.corpus";
 
+    public static final String INTENT_ACTION_QSB_AND_SELECT_CORPUS
+            = "com.android.quicksearchbox.action.QSB_AND_SELECT_CORPUS";
+
     private static final String INTENT_EXTRA_TRACE_START_UP = "trace_start_up";
 
     // Keys for the saved instance state.
+    private static final String INSTANCE_KEY_CORPUS = "corpus";
     private static final String INSTANCE_KEY_QUERY = "query";
 
     private static final String ACTIVITY_HELP_CONTEXT = "search";
@@ -69,20 +83,18 @@ public class SearchActivity extends Activity {
 
     private SearchActivityView mSearchActivityView;
 
-    private Source mSource;
+    private CorporaObserver mCorporaObserver;
 
     private Bundle mAppSearchData;
 
     private final Handler mHandler = new Handler();
     private final Runnable mUpdateSuggestionsTask = new Runnable() {
-        @Override
         public void run() {
             updateSuggestions();
         }
     };
 
     private final Runnable mShowInputMethodTask = new Runnable() {
-        @Override
         public void run() {
             mSearchActivityView.showInputMethodForQuery();
         }
@@ -107,10 +119,13 @@ public class SearchActivity extends Activity {
         // sent as early as possible.
         QsbApplication.get(this).getSearchBaseUrlHelper();
 
-        mSource = QsbApplication.get(this).getGoogleSource();
-
         mSearchActivityView = setupContentView();
 
+        if (getConfig().showScrollingSuggestions()) {
+            mSearchActivityView.setMaxPromotedSuggestions(getConfig().getMaxPromotedSuggestions());
+        } else {
+            mSearchActivityView.limitSuggestionsToViewHeight();
+        }
         if (getConfig().showScrollingResults()) {
             mSearchActivityView.setMaxPromotedResults(getConfig().getMaxPromotedResults());
         } else {
@@ -118,14 +133,12 @@ public class SearchActivity extends Activity {
         }
 
         mSearchActivityView.setSearchClickListener(new SearchActivityView.SearchClickListener() {
-            @Override
             public boolean onSearchClicked(int method) {
                 return SearchActivity.this.onSearchClicked(method);
             }
         });
 
         mSearchActivityView.setQueryListener(new SearchActivityView.QueryListener() {
-            @Override
             public void onQueryChanged() {
                 updateSuggestionsBuffered();
             }
@@ -134,14 +147,12 @@ public class SearchActivity extends Activity {
         mSearchActivityView.setSuggestionClickListener(new ClickHandler());
 
         mSearchActivityView.setVoiceSearchButtonClickListener(new View.OnClickListener() {
-            @Override
             public void onClick(View view) {
                 onVoiceSearchClicked();
             }
         });
 
         View.OnClickListener finishOnClick = new View.OnClickListener() {
-            @Override
             public void onClick(View v) {
                 finish();
             }
@@ -158,6 +169,8 @@ public class SearchActivity extends Activity {
         // is called.
         mSearchActivityView.start();
 
+        mCorporaObserver = new CorporaObserver();
+        getCorpora().registerDataSetObserver(mCorporaObserver);
         recordOnCreateDone();
     }
 
@@ -191,7 +204,9 @@ public class SearchActivity extends Activity {
 
     protected void restoreInstanceState(Bundle savedInstanceState) {
         if (savedInstanceState == null) return;
+        String corpusName = savedInstanceState.getString(INSTANCE_KEY_CORPUS);
         String query = savedInstanceState.getString(INSTANCE_KEY_QUERY);
+        setCorpus(corpusName);
         setQuery(query, false);
     }
 
@@ -201,6 +216,7 @@ public class SearchActivity extends Activity {
         // We don't save appSearchData, since we always get the value
         // from the intent and the user can't change it.
 
+        outState.putString(INSTANCE_KEY_CORPUS, getCorpusName());
         outState.putString(INSTANCE_KEY_QUERY, getQuery());
     }
 
@@ -211,15 +227,56 @@ public class SearchActivity extends Activity {
         Bundle appSearchData = intent.getBundleExtra(SearchManager.APP_DATA);
         boolean selectAll = intent.getBooleanExtra(SearchManager.EXTRA_SELECT_QUERY, false);
 
+        setCorpus(corpusName);
         setQuery(query, selectAll);
         mAppSearchData = appSearchData;
 
+        if (startedIntoCorpusSelectionDialog()) {
+            mSearchActivityView.showCorpusSelectionDialog();
+        }
+    }
+
+    public boolean startedIntoCorpusSelectionDialog() {
+        return INTENT_ACTION_QSB_AND_SELECT_CORPUS.equals(getIntent().getAction());
+    }
+
+    /**
+     * Removes corpus selector intent action, so that BACK works normally after
+     * dismissing and reopening the corpus selector.
+     */
+    public void clearStartedIntoCorpusSelectionDialog() {
+        Intent oldIntent = getIntent();
+        if (SearchActivity.INTENT_ACTION_QSB_AND_SELECT_CORPUS.equals(oldIntent.getAction())) {
+            Intent newIntent = new Intent(oldIntent);
+            newIntent.setAction(SearchManager.INTENT_ACTION_GLOBAL_SEARCH);
+            setIntent(newIntent);
+        }
+    }
+
+    public static Uri getCorpusUri(Corpus corpus) {
+        if (corpus == null) return null;
+        return new Uri.Builder()
+                .scheme(SCHEME_CORPUS)
+                .authority(corpus.getName())
+                .build();
     }
 
     private String getCorpusNameFromUri(Uri uri) {
         if (uri == null) return null;
         if (!SCHEME_CORPUS.equals(uri.getScheme())) return null;
         return uri.getAuthority();
+    }
+
+    private Corpus getCorpus() {
+        return mSearchActivityView.getCorpus();
+    }
+
+    private String getCorpusName() {
+        return mSearchActivityView.getCorpusName();
+    }
+
+    private void setCorpus(String name) {
+        mSearchActivityView.setCorpus(name);
     }
 
     private QsbApplication getQsbApplication() {
@@ -232,6 +289,18 @@ public class SearchActivity extends Activity {
 
     protected SearchSettings getSettings() {
         return getQsbApplication().getSettings();
+    }
+
+    private Corpora getCorpora() {
+        return getQsbApplication().getCorpora();
+    }
+
+    private CorpusRanker getCorpusRanker() {
+        return getQsbApplication().getCorpusRanker();
+    }
+
+    private ShortcutRepository getShortcutRepository() {
+        return getQsbApplication().getShortcutRepository();
     }
 
     private SuggestionsProvider getSuggestionsProvider() {
@@ -250,6 +319,7 @@ public class SearchActivity extends Activity {
     @Override
     protected void onDestroy() {
         if (DBG) Log.d(TAG, "onDestroy()");
+        getCorpora().unregisterDataSetObserver(mCorporaObserver);
         mSearchActivityView.destroy();
         super.onDestroy();
         if (mDestroyListener != null) {
@@ -269,6 +339,7 @@ public class SearchActivity extends Activity {
         // Close all open suggestion cursors. The query will be redone in onResume()
         // if we come back to this activity.
         mSearchActivityView.clearSuggestions();
+        getQsbApplication().getShortcutRefresher().reset();
         mSearchActivityView.onStop();
         super.onStop();
     }
@@ -304,6 +375,7 @@ public class SearchActivity extends Activity {
     }
 
     public void createMenuItems(Menu menu, boolean showDisabled) {
+        getSettings().addMenuItems(menu, showDisabled);
         getQsbApplication().getHelp().addHelpMenuItem(menu, ACTIVITY_HELP_CONTEXT);
     }
 
@@ -324,6 +396,17 @@ public class SearchActivity extends Activity {
         mSearchActivityView.setQuery(query, selectAll);
     }
 
+    public CorpusSelectionDialog getCorpusSelectionDialog() {
+        CorpusSelectionDialog dialog = createCorpusSelectionDialog();
+        dialog.setOwnerActivity(this);
+        dialog.setOnDismissListener(new CorpusSelectorDismissListener());
+        return dialog;
+    }
+
+    protected CorpusSelectionDialog createCorpusSelectionDialog() {
+        return new CorpusSelectionDialog(this, getSettings());
+    }
+
     /**
      * @return true if a search was performed as a result of this click, false otherwise.
      */
@@ -334,40 +417,45 @@ public class SearchActivity extends Activity {
         // Don't do empty queries
         if (TextUtils.getTrimmedLength(query) == 0) return false;
 
+        Corpus searchCorpus = getSearchCorpus();
+        if (searchCorpus == null) return false;
+
         mTookAction = true;
 
         // Log search start
-        getLogger().logSearch(method, query.length());
+        getLogger().logSearch(getCorpus(), method, query.length());
 
         // Start search
-        startSearch(mSource, query);
+        startSearch(searchCorpus, query);
         return true;
     }
 
-    protected void startSearch(Source searchSource, String query) {
-        Intent intent = searchSource.createSearchIntent(query, mAppSearchData);
+    protected void startSearch(Corpus searchCorpus, String query) {
+        Intent intent = searchCorpus.createSearchIntent(query, mAppSearchData);
         launchIntent(intent);
     }
 
     protected void onVoiceSearchClicked() {
         if (DBG) Log.d(TAG, "Voice Search clicked");
+        Corpus searchCorpus = getSearchCorpus();
+        if (searchCorpus == null) return;
 
         mTookAction = true;
 
         // Log voice search start
-        getLogger().logVoiceSearch();
+        getLogger().logVoiceSearch(searchCorpus);
 
         // Start voice search
-        Intent intent = mSource.createVoiceSearchIntent(mAppSearchData);
+        Intent intent = searchCorpus.createVoiceSearchIntent(mAppSearchData);
         launchIntent(intent);
     }
 
-    protected Source getSearchSource() {
-        return mSource;
+    protected Corpus getSearchCorpus() {
+        return mSearchActivityView.getSearchCorpus();
     }
 
     protected SuggestionCursor getCurrentSuggestions() {
-        return mSearchActivityView.getSuggestions().getResult();
+        return mSearchActivityView.getCurrentPromotedSuggestions();
     }
 
     protected SuggestionPosition getCurrentSuggestions(SuggestionsAdapter<?> adapter, long id) {
@@ -387,6 +475,11 @@ public class SearchActivity extends Activity {
         }
         suggestions.moveTo(position);
         return pos;
+    }
+
+    protected Set<Corpus> getCurrentIncludedCorpora() {
+        Suggestions suggestions = mSearchActivityView.getSuggestions();
+        return suggestions == null  ? null : suggestions.getIncludedCorpora();
     }
 
     protected void launchIntent(Intent intent) {
@@ -411,8 +504,11 @@ public class SearchActivity extends Activity {
         mTookAction = true;
 
         // Log suggestion click
-        getLogger().logSuggestionClick(id, suggestion.getCursor(),
+        getLogger().logSuggestionClick(id, suggestion.getCursor(), getCurrentIncludedCorpora(),
                 Logger.SUGGESTION_CLICK_TYPE_LAUNCH);
+
+        // Create shortcut
+        getShortcutRepository().reportClick(suggestion.getCursor(), suggestion.getPosition());
 
         // Launch intent
         launchSuggestion(suggestion.getCursor(), suggestion.getPosition());
@@ -424,6 +520,68 @@ public class SearchActivity extends Activity {
         suggestions.moveTo(position);
         Intent intent = SuggestionUtils.getSuggestionIntent(suggestions, mAppSearchData);
         launchIntent(intent);
+    }
+
+    protected void removeFromHistoryClicked(final SuggestionsAdapter<?> adapter,
+            final long id) {
+        SuggestionPosition suggestion = getCurrentSuggestions(adapter, id);
+        if (suggestion == null) return;
+        CharSequence title = suggestion.getSuggestionText1();
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(title)
+                .setMessage(R.string.remove_from_history)
+                .setPositiveButton(android.R.string.ok,
+                        new DialogInterface.OnClickListener() {
+                            public void onClick(DialogInterface dialog, int which) {
+                                // TODO: what if the suggestions have changed?
+                                removeFromHistory(adapter, id);
+                            }
+                        })
+                .setNegativeButton(android.R.string.cancel, null)
+                .create();
+        dialog.show();
+    }
+
+    protected void removeFromHistory(SuggestionsAdapter<?> adapter, long id) {
+        SuggestionPosition suggestion = getCurrentSuggestions(adapter, id);
+        if (suggestion == null) return;
+        removeFromHistory(suggestion.getCursor(), suggestion.getPosition());
+        // TODO: Log to event log?
+    }
+
+    protected void removeFromHistory(SuggestionCursor suggestions, int position) {
+        removeShortcut(suggestions, position);
+        removeFromHistoryDone(true);
+    }
+
+    protected void removeFromHistoryDone(boolean ok) {
+        Log.i(TAG, "Removed query from history, success=" + ok);
+        updateSuggestionsBuffered();
+        if (!ok) {
+            Toast.makeText(this, R.string.remove_from_history_failed, Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    protected void removeShortcut(SuggestionCursor suggestions, int position) {
+        if (suggestions.isSuggestionShortcut()) {
+            if (DBG) Log.d(TAG, "Removing suggestion " + position + " from shortcuts");
+            getShortcutRepository().removeFromHistory(suggestions, position);
+        }
+    }
+
+    protected void clickedQuickContact(SuggestionsAdapter<?> adapter, long id) {
+        SuggestionPosition suggestion = getCurrentSuggestions(adapter, id);
+        if (suggestion == null) return;
+
+        if (DBG) Log.d(TAG, "Used suggestion " + suggestion.getPosition());
+        mTookAction = true;
+
+        // Log suggestion click
+        getLogger().logSuggestionClick(id, suggestion.getCursor(), getCurrentIncludedCorpora(),
+                Logger.SUGGESTION_CLICK_TYPE_QUICK_CONTACT);
+
+        // Create shortcut
+        getShortcutRepository().reportClick(suggestion.getCursor(), suggestion.getPosition());
     }
 
     protected void refineSuggestion(SuggestionsAdapter<?> adapter, long id) {
@@ -438,7 +596,7 @@ public class SearchActivity extends Activity {
         }
 
         // Log refine click
-        getLogger().logSuggestionClick(id, suggestion.getCursor(),
+        getLogger().logSuggestionClick(id, suggestion.getCursor(), getCurrentIncludedCorpora(),
                 Logger.SUGGESTION_CLICK_TYPE_REFINE);
 
         // Put query + space in query text view
@@ -460,21 +618,60 @@ public class SearchActivity extends Activity {
             mStarting = false;
             String source = getIntent().getStringExtra(Search.SOURCE);
             int latency = mStartLatencyTracker.getLatency();
-            getLogger().logStart(mOnCreateLatency, latency, source);
+            getLogger().logStart(mOnCreateLatency, latency, source, getCorpus(),
+                    suggestions == null ? null : suggestions.getExpectedCorpora());
             getQsbApplication().onStartupComplete();
         }
+    }
+
+    private void getCorporaToQuery(Consumer<List<Corpus>> consumer) {
+        Corpus corpus = getCorpus();
+        if (corpus == null) {
+            getCorpusRanker().getCorporaInAll(Consumers.createAsyncConsumer(mHandler, consumer));
+        } else {
+            List<Corpus> corpora = new ArrayList<Corpus>();
+            Corpus searchCorpus = getSearchCorpus();
+            if (searchCorpus != null) corpora.add(searchCorpus);
+            consumer.consume(corpora);
+        }
+    }
+
+    protected void getShortcutsForQuery(String query, Collection<Corpus> corporaToQuery,
+            final Suggestions suggestions) {
+        ShortcutRepository shortcutRepo = getShortcutRepository();
+        if (shortcutRepo == null) return;
+        if (query.length() == 0 && !getConfig().showShortcutsForZeroQuery()) {
+            return;
+        }
+        Consumer<ShortcutCursor> consumer = Consumers.createAsyncCloseableConsumer(mHandler,
+                new Consumer<ShortcutCursor>() {
+            public boolean consume(ShortcutCursor shortcuts) {
+                suggestions.setShortcuts(shortcuts);
+                return true;
+            }
+        });
+        shortcutRepo.getShortcutsForQuery(query, corporaToQuery,
+                getSettings().allowWebSearchShortcuts(), consumer);
     }
 
     public void updateSuggestions() {
         if (DBG) Log.d(TAG, "updateSuggestions()");
         final String query = CharMatcher.WHITESPACE.trimLeadingFrom(getQuery());
-        updateSuggestions(query, mSource);
+        getQsbApplication().getSourceTaskExecutor().cancelPendingTasks();
+        getCorporaToQuery(new Consumer<List<Corpus>>(){
+            @Override
+            public boolean consume(List<Corpus> corporaToQuery) {
+                updateSuggestions(query, corporaToQuery);
+                return true;
+            }
+        });
     }
 
-    protected void updateSuggestions(String query, Source source) {
-        if (DBG) Log.d(TAG, "updateSuggestions(\"" + query+"\"," + source + ")");
+    protected void updateSuggestions(String query, List<Corpus> corporaToQuery) {
+        if (DBG) Log.d(TAG, "updateSuggestions(\"" + query+"\"," + corporaToQuery + ")");
         Suggestions suggestions = getSuggestionsProvider().getSuggestions(
-                query, source);
+                query, corporaToQuery);
+        getShortcutsForQuery(query, corporaToQuery, suggestions);
 
         // Log start latency if this is the first suggestions update
         gotSuggestions(suggestions);
@@ -488,14 +685,35 @@ public class SearchActivity extends Activity {
 
     private class ClickHandler implements SuggestionClickListener {
 
-        @Override
+        public void onSuggestionQuickContactClicked(SuggestionsAdapter<?> adapter, long id) {
+            clickedQuickContact(adapter, id);
+        }
+
         public void onSuggestionClicked(SuggestionsAdapter<?> adapter, long id) {
             launchSuggestion(adapter, id);
         }
 
-        @Override
+        public void onSuggestionRemoveFromHistoryClicked(SuggestionsAdapter<?> adapter, long id) {
+            removeFromHistoryClicked(adapter, id);
+        }
+
         public void onSuggestionQueryRefineClicked(SuggestionsAdapter<?> adapter, long id) {
             refineSuggestion(adapter, id);
+        }
+    }
+
+    private class CorpusSelectorDismissListener implements DialogInterface.OnDismissListener {
+        public void onDismiss(DialogInterface dialog) {
+            if (DBG) Log.d(TAG, "Corpus selector dismissed");
+            clearStartedIntoCorpusSelectionDialog();
+        }
+    }
+
+    private class CorporaObserver extends DataSetObserver {
+        @Override
+        public void onChanged() {
+            setCorpus(getCorpusName());
+            updateSuggestions();
         }
     }
 

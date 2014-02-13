@@ -15,6 +15,7 @@
  */
 package com.android.quicksearchbox.ui;
 
+import com.android.quicksearchbox.Promoter;
 import com.android.quicksearchbox.Suggestion;
 import com.android.quicksearchbox.SuggestionCursor;
 import com.android.quicksearchbox.SuggestionPosition;
@@ -38,7 +39,11 @@ public abstract class SuggestionsAdapterBase<A> implements SuggestionsAdapter<A>
 
     private DataSetObserver mDataSetObserver;
 
-    private SuggestionCursor mCurrentSuggestions;
+    private Promoter mPromoter;
+
+    private int mMaxPromoted;
+
+    private SuggestionCursor mPromotedSuggestions;
     private final HashMap<String, Integer> mViewTypeMap;
     private final SuggestionViewFactory mViewFactory;
 
@@ -59,8 +64,18 @@ public abstract class SuggestionsAdapterBase<A> implements SuggestionsAdapter<A>
         }
     }
 
-    @Override
     public abstract boolean isEmpty();
+
+    /**
+     * Indicates if this adapter will publish suggestions other than those in the promoted list.
+     */
+    public abstract boolean willPublishNonPromotedSuggestions();
+
+    public void setMaxPromoted(int maxPromoted) {
+        if (DBG) Log.d(TAG, "setMaxPromoted " + maxPromoted);
+        mMaxPromoted = maxPromoted;
+        onSuggestionsChanged();
+    }
 
     public boolean isClosed() {
         return mClosed;
@@ -71,17 +86,19 @@ public abstract class SuggestionsAdapterBase<A> implements SuggestionsAdapter<A>
         mClosed = true;
     }
 
-    @Override
+    public void setPromoter(Promoter promoter) {
+        mPromoter = promoter;
+        onSuggestionsChanged();
+    }
+
     public void setSuggestionClickListener(SuggestionClickListener listener) {
         mSuggestionClickListener = listener;
     }
 
-    @Override
     public void setOnFocusChangeListener(OnFocusChangeListener l) {
         mOnFocusChangeListener = l;
     }
 
-    @Override
     public void setSuggestions(Suggestions suggestions) {
         if (mSuggestions == suggestions) {
             return;
@@ -107,21 +124,19 @@ public abstract class SuggestionsAdapterBase<A> implements SuggestionsAdapter<A>
         onSuggestionsChanged();
     }
 
-    @Override
     public Suggestions getSuggestions() {
         return mSuggestions;
     }
 
-    @Override
     public abstract SuggestionPosition getSuggestion(long suggestionId);
 
-    protected int getCount() {
-        return mCurrentSuggestions == null ? 0 : mCurrentSuggestions.getCount();
+    protected int getPromotedCount() {
+        return mPromotedSuggestions == null ? 0 : mPromotedSuggestions.getCount();
     }
 
-    protected SuggestionPosition getSuggestion(int position) {
-        if (mCurrentSuggestions == null) return null;
-        return new SuggestionPosition(mCurrentSuggestions, position);
+    protected SuggestionPosition getPromotedSuggestion(int position) {
+        if (mPromotedSuggestions == null) return null;
+        return new SuggestionPosition(mPromotedSuggestions, position);
     }
 
     protected int getViewTypeCount() {
@@ -167,15 +182,24 @@ public abstract class SuggestionsAdapterBase<A> implements SuggestionsAdapter<A>
 
     protected void onSuggestionsChanged() {
         if (DBG) Log.d(TAG, "onSuggestionsChanged(" + mSuggestions + ")");
-        SuggestionCursor cursor = null;
-        if (mSuggestions != null) {
-            cursor = mSuggestions.getResult();
-        }
-        changeSuggestions(cursor);
+        SuggestionCursor cursor = getPromoted(mSuggestions);
+        changePromoted(cursor);
     }
 
-    public SuggestionCursor getCurrentSuggestions() {
-        return mCurrentSuggestions;
+    /**
+     * Gets the cursor containing the currently shown suggestions. The caller should not hold
+     * on to or modify the returned cursor.
+     */
+    public SuggestionCursor getCurrentPromotedSuggestions() {
+        return mPromotedSuggestions;
+    }
+
+    /**
+     * Gets the cursor for the given source.
+     */
+    protected SuggestionCursor getPromoted(Suggestions suggestions) {
+        if (suggestions == null) return null;
+        return suggestions.getPromoted(mPromoter, mMaxPromoted);
     }
 
     /**
@@ -184,27 +208,26 @@ public abstract class SuggestionsAdapterBase<A> implements SuggestionsAdapter<A>
      * This does not close the old cursor. Instead, all the cursors are closed in
      * {@link #setSuggestions(Suggestions)}.
      */
-    private void changeSuggestions(SuggestionCursor newCursor) {
+    private void changePromoted(SuggestionCursor newCursor) {
         if (DBG) {
             Log.d(TAG, "changeCursor(" + newCursor + ") count=" +
                     (newCursor == null ? 0 : newCursor.getCount()));
         }
-        if (newCursor == mCurrentSuggestions) {
+        if (newCursor == mPromotedSuggestions) {
             if (newCursor != null) {
                 // Shortcuts may have changed without the cursor changing.
                 notifyDataSetChanged();
             }
             return;
         }
-        mCurrentSuggestions = newCursor;
-        if (mCurrentSuggestions != null) {
+        mPromotedSuggestions = newCursor;
+        if (mPromotedSuggestions != null) {
             notifyDataSetChanged();
         } else {
             notifyDataSetInvalidated();
         }
     }
 
-    @Override
     public void onSuggestionClicked(long suggestionId) {
         if (mClosed) {
             Log.w(TAG, "onSuggestionClicked after close");
@@ -213,7 +236,22 @@ public abstract class SuggestionsAdapterBase<A> implements SuggestionsAdapter<A>
         }
     }
 
-    @Override
+    public void onSuggestionQuickContactClicked(long suggestionId) {
+        if (mClosed) {
+            Log.w(TAG, "onSuggestionQuickContactClicked after close");
+        } else if (mSuggestionClickListener != null) {
+            mSuggestionClickListener.onSuggestionQuickContactClicked(this, suggestionId);
+        }
+    }
+
+    public void onSuggestionRemoveFromHistoryClicked(long suggestionId) {
+        if (mClosed) {
+            Log.w(TAG, "onSuggestionRemoveFromHistoryClicked after close");
+        } else if (mSuggestionClickListener != null) {
+            mSuggestionClickListener.onSuggestionRemoveFromHistoryClicked(this, suggestionId);
+        }
+    }
+
     public void onSuggestionQueryRefineClicked(long suggestionId) {
         if (mClosed) {
             Log.w(TAG, "onSuggestionQueryRefineClicked after close");
@@ -222,7 +260,6 @@ public abstract class SuggestionsAdapterBase<A> implements SuggestionsAdapter<A>
         }
     }
 
-    @Override
     public abstract A getListAdapter();
 
     protected abstract void notifyDataSetInvalidated();
@@ -241,7 +278,6 @@ public abstract class SuggestionsAdapterBase<A> implements SuggestionsAdapter<A>
         public SuggestionViewClickListener(long suggestionId) {
             mSuggestionId = suggestionId;
         }
-        @Override
         public void onClick(View v) {
             onSuggestionClicked(mSuggestionId);
         }
