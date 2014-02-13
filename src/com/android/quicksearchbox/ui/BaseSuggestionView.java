@@ -60,12 +60,17 @@ public abstract class BaseSuggestionView extends RelativeLayout implements Sugge
         mIcon2 = (ImageView) findViewById(R.id.icon2);
     }
 
-    @Override
     public void bindAsSuggestion(Suggestion suggestion, String userQuery) {
         setOnClickListener(new ClickListener());
+        if (isFromHistory(suggestion)) {
+            setLongClickable(true);
+            setOnLongClickListener(new LongClickListener());
+        } else {
+            setLongClickable(false);
+            setOnLongClickListener(null);
+        }
     }
 
-    @Override
     public void bindAdapter(SuggestionsAdapter<?> adapter, long suggestionId) {
         mAdapter = adapter;
         mSuggestionId = suggestionId;
@@ -100,6 +105,18 @@ public abstract class BaseSuggestionView extends RelativeLayout implements Sugge
         }
     }
 
+    protected void onSuggestionQuickContactClicked() {
+        if (mAdapter != null) {
+            mAdapter.onSuggestionQuickContactClicked(mSuggestionId);
+        }
+    }
+
+    protected void onRemoveFromHistoryClicked() {
+        if (mAdapter != null) {
+            mAdapter.onSuggestionRemoveFromHistoryClicked(mSuggestionId);
+        }
+    }
+
     protected void onSuggestionQueryRefineClicked() {
         if (mAdapter != null) {
             mAdapter.onSuggestionQueryRefineClicked(mSuggestionId);
@@ -107,9 +124,15 @@ public abstract class BaseSuggestionView extends RelativeLayout implements Sugge
     }
 
     private class ClickListener implements OnClickListener {
-        @Override
         public void onClick(View v) {
             onSuggestionClicked();
+        }
+    }
+
+    private class LongClickListener implements View.OnLongClickListener {
+        public boolean onLongClick(View v) {
+            onRemoveFromHistoryClicked();
+            return true;
         }
     }
 

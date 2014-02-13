@@ -18,30 +18,28 @@ package com.android.quicksearchbox;
 import android.content.ComponentName;
 import android.database.Cursor;
 
-import com.android.quicksearchbox.google.GoogleSource;
-
 import java.util.Collection;
 
 public class CursorBackedSourceResult extends CursorBackedSuggestionCursor
         implements SourceResult {
 
-    private final GoogleSource mSource;
+    private final Source mSource;
 
-    public CursorBackedSourceResult(GoogleSource source, String userQuery) {
+    public CursorBackedSourceResult(Source source, String userQuery) {
         this(source, userQuery, null);
     }
 
-    public CursorBackedSourceResult(GoogleSource source, String userQuery, Cursor cursor) {
+    public CursorBackedSourceResult(Source source, String userQuery, Cursor cursor) {
         super(userQuery, cursor);
         mSource = source;
     }
 
-    public GoogleSource getSource() {
+    public Source getSource() {
         return mSource;
     }
 
     @Override
-    public GoogleSource getSuggestionSource() {
+    public Source getSuggestionSource() {
         return mSource;
     }
 

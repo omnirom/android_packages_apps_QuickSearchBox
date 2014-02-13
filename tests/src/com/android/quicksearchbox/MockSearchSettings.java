@@ -29,6 +29,18 @@ public class MockSearchSettings implements SearchSettings {
     public void broadcastSettingsChanged() {
     }
 
+    public Intent getSearchableItemsIntent() {
+        return null;
+    }
+
+    public boolean getShowWebSuggestions() {
+        return true;
+    }
+
+    public boolean isCorpusEnabled(Corpus corpus) {
+        return true;
+    }
+
     public void upgradeSettingsIfNeeded() {
     }
 
@@ -41,6 +53,14 @@ public class MockSearchSettings implements SearchSettings {
 
     public int getNextVoiceSearchHintIndex(int size) {
         return 0;
+    }
+
+    public Intent getSearchSettingsIntent() {
+        return null;
+    }
+
+    public boolean allowWebSearchShortcuts() {
+        return true;
     }
 
     public boolean shouldUseGoogleCom() {

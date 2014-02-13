@@ -16,16 +16,6 @@
 
 package com.android.quicksearchbox.google;
 
-import android.content.ComponentName;
-import android.content.Context;
-import android.net.ConnectivityManager;
-import android.net.NetworkInfo;
-import android.net.http.AndroidHttpClient;
-import android.os.Build;
-import android.os.Handler;
-import android.text.TextUtils;
-import android.util.Log;
-
 import com.android.quicksearchbox.Config;
 import com.android.quicksearchbox.R;
 import com.android.quicksearchbox.Source;
@@ -37,9 +27,20 @@ import org.apache.http.HttpResponse;
 import org.apache.http.client.HttpClient;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.params.HttpParams;
+import org.apache.http.params.HttpProtocolParams;
 import org.apache.http.util.EntityUtils;
 import org.json.JSONArray;
 import org.json.JSONException;
+
+import android.content.ComponentName;
+import android.content.Context;
+import android.net.ConnectivityManager;
+import android.net.http.AndroidHttpClient;
+import android.net.NetworkInfo;
+import android.os.Build;
+import android.os.Handler;
+import android.text.TextUtils;
+import android.util.Log;
 
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
@@ -102,7 +103,7 @@ public class GoogleSuggestClient extends AbstractGoogleSource {
             return null;
         }
         try {
-            String encodedQuery = URLEncoder.encode(query, "UTF-8");
+            query = URLEncoder.encode(query, "UTF-8");
             if (mSuggestUri == null) {
                 Locale l = Locale.getDefault();
                 String language = GoogleSearch.getLanguage(l);
@@ -110,7 +111,7 @@ public class GoogleSuggestClient extends AbstractGoogleSource {
                                                                     language);
             }
 
-            String suggestUri = mSuggestUri + encodedQuery;
+            String suggestUri = mSuggestUri + query;
             if (DBG) Log.d(LOG_TAG, "Sending request: " + suggestUri);
             HttpGet method = new HttpGet(suggestUri);
             HttpResponse response = mHttpClient.execute(method);

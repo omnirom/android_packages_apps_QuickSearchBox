@@ -61,7 +61,6 @@ public interface SuggestionCursor extends Suggestion, QuietlyCloseable {
     /**
      * Frees any resources used by this cursor.
      */
-    @Override
     void close();
 
     /**

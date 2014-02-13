@@ -64,17 +64,18 @@ public abstract class AbstractSource implements Source {
 
     protected abstract String getIconPackage();
 
-    @Override
+    public boolean isVersionCodeCompatible(int version) {
+        return getVersionCode() == version;
+    }
+
     public NowOrLater<Drawable> getIcon(String drawableId) {
         return getIconLoader().getIcon(drawableId);
     }
 
-    @Override
     public Uri getIconUri(String drawableId) {
         return getIconLoader().getIconUri(drawableId);
     }
 
-    @Override
     public Intent createSearchIntent(String query, Bundle appData) {
         return createSourceSearchIntent(getIntentComponent(), query, appData);
     }
@@ -104,7 +105,6 @@ public abstract class AbstractSource implements Source {
                 .createVoiceWebSearchIntent(appData);
     }
 
-    @Override
     public Source getRoot() {
         return this;
     }

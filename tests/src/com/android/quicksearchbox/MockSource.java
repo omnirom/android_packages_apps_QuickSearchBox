@@ -16,14 +16,15 @@
 
 package com.android.quicksearchbox;
 
+import com.android.quicksearchbox.ui.SuggestionViewFactory;
+import com.android.quicksearchbox.util.Now;
+import com.android.quicksearchbox.util.NowOrLater;
+
 import android.content.ComponentName;
 import android.content.Intent;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.os.Bundle;
-
-import com.android.quicksearchbox.util.Now;
-import com.android.quicksearchbox.util.NowOrLater;
 
 /**
  * Mock implementation of {@link Source}.
@@ -46,9 +47,15 @@ public class MockSource implements Source {
                     .setSuggestionQuery(query);
         }
 
+        @Override
+        public int getMaxShortcuts(Config config) {
+            return config.getMaxShortcutsPerWebSource();
+        }
     };
 
     private final String mName;
+
+    private final int mVersionCode;
 
     public MockSource(String name) {
         this(name, 0);
@@ -56,6 +63,7 @@ public class MockSource implements Source {
 
     public MockSource(String name, int versionCode) {
         mName = name;
+        mVersionCode = versionCode;
     }
 
     public ComponentName getIntentComponent() {
@@ -66,6 +74,14 @@ public class MockSource implements Source {
 
     public String getSuggestUri() {
         return null;
+    }
+
+    public int getVersionCode() {
+        return mVersionCode;
+    }
+
+    public boolean isVersionCodeCompatible(int version) {
+        return version == mVersionCode;
     }
 
     public String getName() {
@@ -117,7 +133,7 @@ public class MockSource implements Source {
         return true;
     }
 
-    public SourceResult getSuggestions(String query, int queryLimit) {
+    public SourceResult getSuggestions(String query, int queryLimit, boolean onlySource) {
         if (query.length() == 0) {
             return null;
         }
@@ -151,7 +167,7 @@ public class MockSource implements Source {
 
     @Override
     public String toString() {
-        return getName();
+        return getName() + ":" + getVersionCode();
     }
 
     private class Result extends SuggestionCursorWrapper implements SourceResult {
@@ -164,6 +180,18 @@ public class MockSource implements Source {
             return MockSource.this;
         }
 
+    }
+
+    public SuggestionCursor refreshShortcut(String shortcutId, String extraData) {
+        return null;
+    }
+
+    public boolean isExternal() {
+        return false;
+    }
+
+    public int getMaxShortcuts(Config config) {
+        return config.getMaxShortcutsPerNonWebSource();
     }
 
     public boolean queryAfterZeroResults() {

@@ -64,13 +64,11 @@ public class CorpusView extends RelativeLayout implements Checkable {
         mIcon.setImageDrawable(icon);
     }
 
-    @Override
     @ViewDebug.ExportedProperty
     public boolean isChecked() {
         return mChecked;
     }
 
-    @Override
     public void setChecked(boolean checked) {
         if (mChecked != checked) {
             mChecked = checked;
@@ -78,7 +76,6 @@ public class CorpusView extends RelativeLayout implements Checkable {
         }
     }
 
-    @Override
     public void toggle() {
         setChecked(!mChecked);
     }
