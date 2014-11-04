@@ -16,17 +16,23 @@
 
 <resources xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
-    <string name="app_name" msgid="1504397077706378597">"Tschertga"</string>
-    <!-- no translation found for remove_from_history_failed (1200923379897420942) -->
+    <!-- no translation found for app_name (1504397077706378597) -->
     <skip />
-    <string name="corpus_selection_heading" msgid="6673422146423301360">"Tschertga"</string>
-    <string name="menu_settings" msgid="5600043319144155953">"Parameters da tschertgar"</string>
-    <string name="system_search_category_title" msgid="1507902891285388819">"Telefon"</string>
-    <string name="clear_shortcuts_summary" msgid="7407553488405249541">"Stizzar las scursanidas a propostas da tschertga utilisadas dacurt"</string>
+    <string name="remove_from_history_failed" msgid="1200923379897420942">"Нерсе таржымалдан алынып салынган жок"</string>
+    <!-- no translation found for corpus_selection_heading (6673422146423301360) -->
+    <skip />
+    <!-- no translation found for menu_settings (5600043319144155953) -->
+    <skip />
+    <!-- no translation found for system_search_category_title (1507902891285388819) -->
+    <skip />
+    <!-- no translation found for clear_shortcuts_summary (7407553488405249541) -->
+    <skip />
     <!-- no translation found for menu_help (8466596486018760239) -->
     <skip />
-    <string name="google_search_label" msgid="2312345472131797361">"Google"</string>
-    <string name="google_search_hint" msgid="8374014384681586649">"Tschertga Google"</string>
+    <!-- no translation found for google_search_label (2312345472131797361) -->
+    <skip />
+    <!-- no translation found for google_search_hint (8374014384681586649) -->
+    <skip />
     <!-- no translation found for google_search_description (659411505885375623) -->
     <skip />
     <!-- no translation found for voice_search_hint_title (9160095960228453779) -->
